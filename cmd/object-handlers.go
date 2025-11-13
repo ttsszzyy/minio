@@ -1828,8 +1828,8 @@ func (api objectAPIHandlers) PutObjectHandler(w http.ResponseWriter, r *http.Req
 	}
 
 	// 提取客户端生成的xl.meta
-	if xlMeta := r.Header.Get("X-Minio-XL-Meta"); xlMeta != "" {
-		metadata["X-Minio-XL-Meta"] = xlMeta
+	if xlMeta := r.Header.Get("X-Amz-Meta-Xl-Meta"); xlMeta != "" {
+		metadata["X-Amz-Meta-Xl-Meta"] = xlMeta
 	}
 
 	if objTags := r.Header.Get(xhttp.AmzObjectTagging); objTags != "" {

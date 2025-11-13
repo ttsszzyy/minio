@@ -515,7 +515,7 @@ func (s *simpleObjects) RestoreTransitionedObject(ctx context.Context, bucket, o
 
 // Health - 健康检查
 func (s *simpleObjects) Health(ctx context.Context, opts HealthOptions) HealthResult {
-	return HealthResult{Healthy: true}
+	return HealthResult{Healthy: true, HealthyRead: true}
 }
 
 // CheckAbandonedParts - 检查废弃的分片(简化版不支持)

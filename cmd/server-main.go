@@ -1000,9 +1000,9 @@ func serverMain(ctx *cli.Context) {
 
 	// Initialize users credentials and policies in background right after config has initialized.
 	go func() {
-		bootstrapTrace("globalIAMSys.Init", func() {
-			globalIAMSys.Init(GlobalContext, newObject, globalEtcdClient, globalRefreshIAMInterval)
-		})
+		// bootstrapTrace("globalIAMSys.Init", func() {
+		// 	globalIAMSys.Init(GlobalContext, newObject, globalEtcdClient, globalRefreshIAMInterval)
+		// })
 
 		// Initialize Console UI
 		if globalBrowserEnabled {
@@ -1195,6 +1195,7 @@ func serverMain(ctx *cli.Context) {
 
 // Initialize object layer with the supplied disks, objectLayer is nil upon any error.
 func newObjectLayer(ctx context.Context, endpointServerPools EndpointServerPools) (newObject ObjectLayer, err error) {
+
 	// 收集所有端点的存储
 	var allStorages []StorageAPI
 
@@ -1213,12 +1214,25 @@ func newObjectLayer(ctx context.Context, endpointServerPools EndpointServerPools
 	if len(allStorages) == 0 {
 		return nil, fmt.Errorf("no valid storage endpoints available")
 	}
-
+	defer func() {
+		setObjectLayer(newObject)
+	}()
 	// 如果只有一个存储,使用单存储模式
 	if len(allStorages) == 1 {
-		return NewSimpleObjects(allStorages[0]), nil
+		newObject = NewSimpleObjects(allStorages[0])
+		bootstrapTrace("newSharedLock", func() {
+			globalLeaderLock = newSharedLock(ctx, newObject, "simple.lock")
+		})
+
+		return newObject, nil
+
 	}
 
 	// 多个存储使用负载均衡模式
-	return NewSimpleObjectsMulti(allStorages), nil
+	newObject = NewSimpleObjectsMulti(allStorages)
+	bootstrapTrace("newSharedLock", func() {
+		globalLeaderLock = newSharedLock(ctx, newObject, "simple.lock")
+	})
+
+	return newObject, nil
 }
