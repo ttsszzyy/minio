@@ -501,6 +501,11 @@ func (api objectAPIHandlers) getObjectHandler(ctx context.Context, objectAPI Obj
 	// filter object lock metadata if permission does not permit
 	objInfo.UserDefined = objectlock.FilterObjectLockMetadata(objInfo.UserDefined, getRetPerms != ErrNone, legalHoldPerms != ErrNone)
 
+	// 返回xl.meta给客户端
+	if xlMeta, ok := objInfo.UserDefined["X-Minio-XL-Meta"]; ok {
+		w.Header().Set("X-Minio-XL-Meta", xlMeta)
+	}
+
 	// Set encryption response headers
 	if kind, isEncrypted := crypto.IsEncrypted(objInfo.UserDefined); isEncrypted {
 		switch kind {
@@ -960,6 +965,11 @@ func (api objectAPIHandlers) headObjectHandler(ctx context.Context, objectAPI Ob
 
 	// Set any additional requested response headers.
 	setHeadGetRespHeaders(w, r.Form)
+
+	// 返回xl.meta给客户端
+	if xlMeta, ok := objInfo.UserDefined["X-Minio-XL-Meta"]; ok {
+		w.Header().Set("X-Minio-XL-Meta", xlMeta)
+	}
 
 	// Successful response.
 	if rs != nil || opts.PartNumber > 0 {
@@ -1815,6 +1825,11 @@ func (api objectAPIHandlers) PutObjectHandler(w http.ResponseWriter, r *http.Req
 	if err != nil {
 		writeErrorResponse(ctx, w, toAPIError(ctx, err), r.URL)
 		return
+	}
+
+	// 提取客户端生成的xl.meta
+	if xlMeta := r.Header.Get("X-Minio-XL-Meta"); xlMeta != "" {
+		metadata["X-Minio-XL-Meta"] = xlMeta
 	}
 
 	if objTags := r.Header.Get(xhttp.AmzObjectTagging); objTags != "" {

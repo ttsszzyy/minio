@@ -1195,5 +1195,30 @@ func serverMain(ctx *cli.Context) {
 
 // Initialize object layer with the supplied disks, objectLayer is nil upon any error.
 func newObjectLayer(ctx context.Context, endpointServerPools EndpointServerPools) (newObject ObjectLayer, err error) {
-	return newErasureServerPools(ctx, endpointServerPools)
+	// 收集所有端点的存储
+	var allStorages []StorageAPI
+
+	for poolIdx, pool := range endpointServerPools {
+		for _, endpoint := range pool.Endpoints {
+			storage, err := newXLStorage(endpoint, false)
+			if err != nil {
+				// 记录错误但继续尝试其他端点
+				logger.LogIf(ctx, "newObjectLayer", fmt.Errorf("failed to initialize storage for endpoint %s in pool %d: %w", endpoint, poolIdx, err))
+				continue
+			}
+			allStorages = append(allStorages, storage)
+		}
+	}
+
+	if len(allStorages) == 0 {
+		return nil, fmt.Errorf("no valid storage endpoints available")
+	}
+
+	// 如果只有一个存储,使用单存储模式
+	if len(allStorages) == 1 {
+		return NewSimpleObjects(allStorages[0]), nil
+	}
+
+	// 多个存储使用负载均衡模式
+	return NewSimpleObjectsMulti(allStorages), nil
 }
