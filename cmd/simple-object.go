@@ -23,6 +23,8 @@ import (
 	"hash/crc32"
 	"io"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/minio/madmin-go/v3"
@@ -82,9 +84,10 @@ func (s *simpleObjects) Shutdown(ctx context.Context) error {
 	return nil
 }
 
-// NSScanner - 命名空间扫描
+// NSScanner - 命名空间扫描(简化版不支持)
 func (s *simpleObjects) NSScanner(ctx context.Context, updates chan<- DataUsageInfo, wantCycle uint32, scanMode madmin.HealScanMode) error {
-	return NotImplemented{}
+	// 简化版本,不做命名空间扫描
+	return nil
 }
 
 // BackendInfo - 返回后端信息
@@ -383,32 +386,131 @@ func (s *simpleObjects) DeleteObjects(ctx context.Context, bucket string, object
 
 // ListObjects - 列出对象
 func (s *simpleObjects) ListObjects(ctx context.Context, bucket, prefix, marker, delimiter string, maxKeys int) (ListObjectsInfo, error) {
-	return ListObjectsInfo{}, NotImplemented{}
+	storage := s.selectStorageBucket(bucket)
+
+	// 使用ListDir列出目录
+	entries, err := storage.ListDir(ctx, "", bucket, prefix, -1)
+	if err != nil {
+		return ListObjectsInfo{}, err
+	}
+
+	var objects []ObjectInfo
+	var prefixes []string
+	prefixMap := make(map[string]bool)
+
+	for _, entry := range entries {
+		// 跳过marker之前的对象
+		if marker != "" && entry <= marker {
+			continue
+		}
+
+		// 检查是否是目录分隔符
+		if delimiter != "" && strings.HasSuffix(entry, delimiter) {
+			if !prefixMap[entry] {
+				prefixMap[entry] = true
+				prefixes = append(prefixes, entry)
+			}
+			continue
+		}
+
+		// 获取对象信息
+		objInfo, err := s.GetObjectInfo(ctx, bucket, entry, ObjectOptions{})
+		if err == nil {
+			objects = append(objects, objInfo)
+			if len(objects) >= maxKeys {
+				break
+			}
+		}
+	}
+
+	isTruncated := len(objects) == maxKeys
+	nextMarker := ""
+	if isTruncated && len(objects) > 0 {
+		nextMarker = objects[len(objects)-1].Name
+	}
+
+	return ListObjectsInfo{
+		IsTruncated: isTruncated,
+		NextMarker:  nextMarker,
+		Objects:     objects,
+		Prefixes:    prefixes,
+	}, nil
 }
 
 // ListObjectsV2 - 列出对象V2
 func (s *simpleObjects) ListObjectsV2(ctx context.Context, bucket, prefix, continuationToken, delimiter string, maxKeys int, fetchOwner bool, startAfter string) (ListObjectsV2Info, error) {
-	return ListObjectsV2Info{}, NotImplemented{}
+	marker := continuationToken
+	if marker == "" {
+		marker = startAfter
+	}
+
+	v1Result, err := s.ListObjects(ctx, bucket, prefix, marker, delimiter, maxKeys)
+	if err != nil {
+		return ListObjectsV2Info{}, err
+	}
+
+	return ListObjectsV2Info{
+		IsTruncated:           v1Result.IsTruncated,
+		ContinuationToken:     continuationToken,
+		NextContinuationToken: v1Result.NextMarker,
+		Objects:               v1Result.Objects,
+		Prefixes:              v1Result.Prefixes,
+	}, nil
 }
 
 // ListObjectVersions - 列出对象版本
 func (s *simpleObjects) ListObjectVersions(ctx context.Context, bucket, prefix, marker, versionMarker, delimiter string, maxKeys int) (ListObjectVersionsInfo, error) {
-	return ListObjectVersionsInfo{}, NotImplemented{}
+	// 简化版不支持版本控制,返回当前版本即可
+	v1Result, err := s.ListObjects(ctx, bucket, prefix, marker, delimiter, maxKeys)
+	if err != nil {
+		return ListObjectVersionsInfo{}, err
+	}
+
+	return ListObjectVersionsInfo{
+		IsTruncated: v1Result.IsTruncated,
+		Objects:     v1Result.Objects,
+		Prefixes:    v1Result.Prefixes,
+	}, nil
 }
 
 // Walk - 遍历对象
 func (s *simpleObjects) Walk(ctx context.Context, bucket, prefix string, results chan<- itemOrErr[ObjectInfo], opts WalkOptions) error {
-	return NotImplemented{}
+	storage := s.selectStorageBucket(bucket)
+
+	// 使用ListDir递归列出所有对象
+	entries, err := storage.ListDir(ctx, "", bucket, prefix, -1)
+	if err != nil {
+		close(results)
+		return err
+	}
+
+	go func() {
+		defer close(results)
+		for _, entry := range entries {
+			if !strings.HasSuffix(entry, SlashSeparator) {
+				objInfo, err := s.GetObjectInfo(ctx, bucket, entry, ObjectOptions{})
+				if err != nil {
+					results <- itemOrErr[ObjectInfo]{Err: err}
+					continue
+				}
+				results <- itemOrErr[ObjectInfo]{Item: objInfo}
+			}
+		}
+	}()
+
+	return nil
 }
 
-// TransitionObject - 转换对象
+// TransitionObject - 转换对象(简化版不支持对象转换)
 func (s *simpleObjects) TransitionObject(ctx context.Context, bucket, object string, opts ObjectOptions) error {
-	return NotImplemented{}
+	// 简化版本不支持对象转换到其他存储层
+	return nil
 }
 
-// RestoreTransitionedObject - 恢复转换的对象
+// RestoreTransitionedObject - 恢复转换的对象(简化版不支持)
 func (s *simpleObjects) RestoreTransitionedObject(ctx context.Context, bucket, object string, opts ObjectOptions) error {
-	return NotImplemented{}
+	// 简化版本不支持恢复转换的对象
+	return nil
 }
 
 // Health - 健康检查
@@ -416,19 +518,52 @@ func (s *simpleObjects) Health(ctx context.Context, opts HealthOptions) HealthRe
 	return HealthResult{Healthy: true}
 }
 
-// CheckAbandonedParts - 检查废弃的分片
+// CheckAbandonedParts - 检查废弃的分片(简化版不支持)
 func (s *simpleObjects) CheckAbandonedParts(ctx context.Context, bucket, object string, opts madmin.HealOpts) error {
-	return NotImplemented{}
+	// 简化版本,不做废弃分片检查
+	return nil
 }
 
-// DecomTieredObject - 解压分层对象
+// DecomTieredObject - 解压分层对象(简化版不支持)
 func (s *simpleObjects) DecomTieredObject(ctx context.Context, bucket, object string, fi FileInfo, opts ObjectOptions) error {
-	return NotImplemented{}
+	// 简化版本不支持分层对象
+	return nil
 }
 
 // CopyObjectPart - 复制对象分片
 func (s *simpleObjects) CopyObjectPart(ctx context.Context, srcBucket, srcObject, destBucket, destObject string, uploadID string, partID int, startOffset int64, length int64, srcInfo ObjectInfo, srcOpts, dstOpts ObjectOptions) (PartInfo, error) {
-	return PartInfo{}, NotImplemented{}
+	srcStorage := s.selectStorage(srcBucket, srcObject)
+	dstStorage := s.selectStorage(destBucket, destObject)
+
+	// 读取源对象数据
+	srcPath := pathJoin(srcBucket, srcObject, "data")
+	srcData, err := srcStorage.ReadAll(ctx, srcBucket, srcPath)
+	if err != nil {
+		return PartInfo{}, err
+	}
+
+	// 提取指定范围的数据
+	if startOffset < 0 || startOffset >= int64(len(srcData)) {
+		startOffset = 0
+	}
+	endOffset := startOffset + length
+	if endOffset > int64(len(srcData)) {
+		endOffset = int64(len(srcData))
+	}
+	partData := srcData[startOffset:endOffset]
+
+	// 保存为分片
+	partPath := pathJoin(uploadID, "part."+strconv.Itoa(partID))
+	err = dstStorage.WriteAll(ctx, minioMetaTmpBucket, partPath, partData)
+	if err != nil {
+		return PartInfo{}, err
+	}
+
+	return PartInfo{
+		PartNumber: partID,
+		Size:       int64(len(partData)),
+		ETag:       getMD5Hash(partData),
+	}, nil
 }
 
 // PutObjectMetadata - 更新对象元数据
@@ -589,59 +724,267 @@ func (s *simpleObjects) CheckQuorum(ctx context.Context, bucket, prefix string, 
 	return nil
 }
 
-// HealFormat - 修复格式
+// HealFormat - 修复格式(简化版不需要修复)
 func (s *simpleObjects) HealFormat(ctx context.Context, dryRun bool) (madmin.HealResultItem, error) {
-	return madmin.HealResultItem{}, NotImplemented{}
+	// 简化版本无擦除码,不需要修复
+	return madmin.HealResultItem{}, nil
 }
 
-// HealBucket - 修复存储桶
+// HealBucket - 修复存储桶(简化版不需要修复)
 func (s *simpleObjects) HealBucket(ctx context.Context, bucket string, opts madmin.HealOpts) (madmin.HealResultItem, error) {
-	return madmin.HealResultItem{}, NotImplemented{}
+	// 简化版本无擦除码,不需要修复bucket
+	return madmin.HealResultItem{}, nil
 }
 
-// HealObject - 修复对象
+// HealObject - 修复对象(简化版不需要修复)
 func (s *simpleObjects) HealObject(ctx context.Context, bucket, object, versionID string, opts madmin.HealOpts) (madmin.HealResultItem, error) {
-	return madmin.HealResultItem{}, NotImplemented{}
+	// 简化版本无擦除码,不需要修复object
+	return madmin.HealResultItem{}, nil
 }
 
-// HealObjects - 修复多个对象
+// HealObjects - 修复多个对象(简化版不需要修复)
 func (s *simpleObjects) HealObjects(ctx context.Context, bucket, prefix string, opts madmin.HealOpts, fn HealObjectFn) error {
-	return NotImplemented{}
+	// 简化版本无擦除码,不需要修复objects
+	return nil
 }
 
 // GetMultipartInfo - 获取分片上传信息
 func (s *simpleObjects) GetMultipartInfo(ctx context.Context, bucket, object, uploadID string, opts ObjectOptions) (MultipartInfo, error) {
-	return MultipartInfo{}, NotImplemented{}
+	storage := s.selectStorage(bucket, object)
+
+	// 读取上传元数据
+	metaPath := pathJoin(uploadID, "upload.meta")
+	metaBytes, err := storage.ReadAll(ctx, minioMetaTmpBucket, metaPath)
+	if err != nil {
+		return MultipartInfo{}, err
+	}
+
+	var fi FileInfo
+	if _, err := fi.UnmarshalMsg(metaBytes); err != nil {
+		return MultipartInfo{}, err
+	}
+
+	return MultipartInfo{
+		Bucket:    bucket,
+		Object:    object,
+		UploadID:  uploadID,
+		Initiated: fi.ModTime,
+	}, nil
 }
 
 // NewMultipartUpload - 创建分片上传
 func (s *simpleObjects) NewMultipartUpload(ctx context.Context, bucket, object string, opts ObjectOptions) (*NewMultipartUploadResult, error) {
-	return nil, NotImplemented{}
+	storage := s.selectStorage(bucket, object)
+
+	// 生成uploadID
+	uploadID := mustGetUUID()
+
+	// 创建临时目录存储分片
+	uploadPath := pathJoin(bucket, minioMetaTmpBucket, uploadID)
+	err := storage.MakeVol(ctx, uploadPath)
+	if err != nil {
+		return nil, err
+	}
+
+	// 保存元数据
+	fi := FileInfo{
+		Name:      object,
+		ModTime:   time.Now(),
+		Metadata:  opts.UserDefined,
+		VersionID: opts.VersionID,
+	}
+
+	metaBytes, _ := fi.MarshalMsg(nil)
+	metaPath := pathJoin(uploadPath, "upload.meta")
+	storage.WriteAll(ctx, minioMetaTmpBucket, metaPath, metaBytes)
+
+	return &NewMultipartUploadResult{
+		UploadID: uploadID,
+	}, nil
 }
 
 // PutObjectPart - 上传分片
 func (s *simpleObjects) PutObjectPart(ctx context.Context, bucket, object, uploadID string, partID int, data *PutObjReader, opts ObjectOptions) (PartInfo, error) {
-	return PartInfo{}, NotImplemented{}
+	storage := s.selectStorage(bucket, object)
+
+	// 读取分片数据
+	partData, err := io.ReadAll(io.LimitReader(data.Reader, data.Size()))
+	if err != nil {
+		return PartInfo{}, err
+	}
+
+	// 保存分片
+	partPath := pathJoin(uploadID, "part."+strconv.Itoa(partID))
+	err = storage.WriteAll(ctx, minioMetaTmpBucket, partPath, partData)
+	if err != nil {
+		return PartInfo{}, err
+	}
+
+	return PartInfo{
+		PartNumber: partID,
+		Size:       int64(len(partData)),
+		ETag:       getMD5Hash(partData),
+	}, nil
 }
 
 // ListObjectParts - 列出对象分片
 func (s *simpleObjects) ListObjectParts(ctx context.Context, bucket, object, uploadID string, partNumberMarker int, maxParts int, opts ObjectOptions) (ListPartsInfo, error) {
-	return ListPartsInfo{}, NotImplemented{}
+	storage := s.selectStorage(bucket, object)
+
+	// 列出所有分片
+	entries, err := storage.ListDir(ctx, "", minioMetaTmpBucket, uploadID, -1)
+	if err != nil {
+		return ListPartsInfo{}, err
+	}
+
+	var parts []PartInfo
+	for _, entry := range entries {
+		// 只处理分片文件
+		if !strings.HasPrefix(entry, "part.") {
+			continue
+		}
+
+		// 解析分片号
+		partNumStr := strings.TrimPrefix(entry, "part.")
+		partNum, err := strconv.Atoi(partNumStr)
+		if err != nil || partNum <= partNumberMarker {
+			continue
+		}
+
+		// 读取分片大小
+		partPath := pathJoin(uploadID, entry)
+		partData, err := storage.ReadAll(ctx, minioMetaTmpBucket, partPath)
+		if err != nil {
+			continue
+		}
+
+		parts = append(parts, PartInfo{
+			PartNumber: partNum,
+			Size:       int64(len(partData)),
+			ETag:       getMD5Hash(partData),
+		})
+
+		if len(parts) >= maxParts {
+			break
+		}
+	}
+
+	return ListPartsInfo{
+		Bucket:   bucket,
+		Object:   object,
+		UploadID: uploadID,
+		Parts:    parts,
+	}, nil
 }
 
 // AbortMultipartUpload - 中止分片上传
 func (s *simpleObjects) AbortMultipartUpload(ctx context.Context, bucket, object, uploadID string, opts ObjectOptions) error {
-	return NotImplemented{}
+	storage := s.selectStorage(bucket, object)
+
+	// 列出所有分片
+	entries, _ := storage.ListDir(ctx, "", minioMetaTmpBucket, uploadID, -1)
+
+	// 删除每个分片
+	for _, entry := range entries {
+		storage.Delete(ctx, minioMetaTmpBucket, entry, DeleteOptions{})
+	}
+
+	// 删除上传目录
+	storage.Delete(ctx, minioMetaTmpBucket, uploadID, DeleteOptions{Recursive: true})
+
+	return nil
 }
 
 // CompleteMultipartUpload - 完成分片上传
 func (s *simpleObjects) CompleteMultipartUpload(ctx context.Context, bucket, object, uploadID string, uploadedParts []CompletePart, opts ObjectOptions) (ObjectInfo, error) {
-	return ObjectInfo{}, NotImplemented{}
+	storage := s.selectStorage(bucket, object)
+
+	// 读取所有分片并合并
+	var allData []byte
+	for _, part := range uploadedParts {
+		partPath := pathJoin(uploadID, "part."+strconv.Itoa(part.PartNumber))
+		partData, err := storage.ReadAll(ctx, minioMetaTmpBucket, partPath)
+		if err != nil {
+			return ObjectInfo{}, err
+		}
+		allData = append(allData, partData...)
+	}
+
+	// 写入最终对象
+	objectPath := pathJoin(bucket, object)
+	dataPath := pathJoin(objectPath, "data")
+	err := storage.WriteAll(ctx, bucket, dataPath, allData)
+	if err != nil {
+		return ObjectInfo{}, err
+	}
+
+	// 读取并保存元数据
+	uploadMetaPath := pathJoin(uploadID, "upload.meta")
+	metaBytes, _ := storage.ReadAll(ctx, minioMetaTmpBucket, uploadMetaPath)
+
+	if len(metaBytes) > 0 {
+		metaPath := pathJoin(objectPath, "xl.meta")
+		storage.WriteAll(ctx, bucket, metaPath, metaBytes)
+	}
+
+	// 清理临时文件
+	s.AbortMultipartUpload(ctx, bucket, object, uploadID, opts)
+
+	return s.GetObjectInfo(ctx, bucket, object, opts)
 }
 
 // ListMultipartUploads - 列出分片上传
 func (s *simpleObjects) ListMultipartUploads(ctx context.Context, bucket, prefix, keyMarker, uploadIDMarker, delimiter string, maxUploads int) (ListMultipartsInfo, error) {
-	return ListMultipartsInfo{}, NotImplemented{}
+	storage := s.selectStorageBucket(bucket)
+
+	// 列出临时目录中的所有上传
+	entries, err := storage.ListDir(ctx, "", minioMetaTmpBucket, "", -1)
+	if err != nil {
+		return ListMultipartsInfo{}, err
+	}
+
+	var uploads []MultipartInfo
+	for _, uploadID := range entries {
+		// 跳过非目录项
+		if !strings.HasSuffix(uploadID, SlashSeparator) {
+			uploadID = strings.TrimSuffix(uploadID, SlashSeparator)
+		}
+
+		// 读取上传元数据
+		metaPath := pathJoin(uploadID, "upload.meta")
+		metaBytes, err := storage.ReadAll(ctx, minioMetaTmpBucket, metaPath)
+		if err != nil {
+			continue
+		}
+
+		var fi FileInfo
+		if _, err := fi.UnmarshalMsg(metaBytes); err != nil {
+			continue
+		}
+
+		// 过滤不匹配的对象
+		if prefix != "" && !strings.HasPrefix(fi.Name, prefix) {
+			continue
+		}
+		if keyMarker != "" && fi.Name <= keyMarker {
+			continue
+		}
+
+		uploads = append(uploads, MultipartInfo{
+			Bucket:    bucket,
+			Object:    fi.Name,
+			UploadID:  uploadID,
+			Initiated: fi.ModTime,
+		})
+
+		if len(uploads) >= maxUploads {
+			break
+		}
+	}
+
+	return ListMultipartsInfo{
+		Uploads: uploads,
+	}, nil
 }
 
 // IsCompressionEnabled - 是否启用压缩
