@@ -168,9 +168,8 @@ func (s *simpleObjects) PutObject(ctx context.Context, bucket, object string, da
 	storage := s.selectStorage(bucket, object)
 
 	// 构建对象路径
-	objectPath := pathJoin(bucket, object)
-	dataPath := pathJoin(objectPath, "data")
-	metaPath := pathJoin(objectPath, "xl.meta")
+	dataPath := pathJoin(object, "data")
+	metaPath := pathJoin(object, "xl.meta")
 
 	// 从opts中提取xl.meta
 	xlMetaEncoded := opts.UserDefined["X-Amz-Meta-Xl-Meta"]
@@ -242,9 +241,8 @@ func (s *simpleObjects) GetObjectNInfo(ctx context.Context, bucket, object strin
 	}
 
 	// 构建数据路径
-	objectPath := pathJoin(bucket, object)
-	dataPath := pathJoin(objectPath, "data")
-	metaPath := pathJoin(objectPath, "xl.meta")
+	dataPath := pathJoin(object, "data")
+	metaPath := pathJoin(object, "xl.meta")
 
 	// 读取xl.meta - ReadAll 签名: (ctx, volume, path string) ([]byte, error)
 	xlMetaData, _ := storage.ReadAll(ctx, bucket, metaPath)
@@ -284,19 +282,17 @@ func (s *simpleObjects) GetObjectInfo(ctx context.Context, bucket, object string
 	// 选择存储端点
 	storage := s.selectStorage(bucket, object)
 
-	objectPath := pathJoin(bucket, object)
-	metaPath := pathJoin(objectPath, "xl.meta")
+	// metaPath := pathJoin(objectPath, "xl.meta")
 
 	// 读取xl.meta - ReadAll 签名: (ctx, volume, path string) ([]byte, error)
-	xlMetaBytes, err := storage.ReadAll(ctx, bucket, metaPath)
+	rfi, err := storage.ReadXL(ctx, bucket, object, false)
 	if err != nil {
 		return ObjectInfo{}, toObjectErr(err, bucket, object)
 	}
 
-	// 解析元数据
-	var fi FileInfo
-	if _, err := fi.UnmarshalMsg(xlMetaBytes); err != nil {
-		return ObjectInfo{}, err
+	fi, err := fileInfoFromRaw(rfi, bucket, object, false, opts.InclFreeVersions)
+	if err != nil {
+		return ObjectInfo{}, toObjectErr(err, bucket, object)
 	}
 
 	return ObjectInfo{
