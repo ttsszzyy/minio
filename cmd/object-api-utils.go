@@ -264,6 +264,10 @@ func concat(ss ...string) string {
 	return unsafe.String(unsafe.SliceData(b), n)
 }
 
+func PathJoin(elem ...string) string {
+	return pathJoin(elem...)
+}
+
 // pathJoin - like path.Join() but retains trailing SlashSeparator of the last element
 func pathJoin(elem ...string) string {
 	sb := bytebufferpool.Get()
@@ -362,6 +366,10 @@ func pathNeedsClean(path []byte) bool {
 	}
 
 	return false
+}
+
+func MustGetUUID() string {
+	return mustGetUUID()
 }
 
 // mustGetUUID - get a random UUID.

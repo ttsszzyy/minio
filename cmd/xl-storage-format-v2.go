@@ -899,7 +899,11 @@ type xlMetaV2ShallowVersion struct {
 	meta   []byte
 }
 
-//msgp:ignore xlMetaV2 xlMetaV2ShallowVersion
+//msgp:ignore XlMetaV2 xlMetaV2 xlMetaV2ShallowVersion
+
+type XlMetaV2 struct {
+	xlMetaV2
+}
 
 type xlMetaV2 struct {
 	versions []xlMetaV2ShallowVersion

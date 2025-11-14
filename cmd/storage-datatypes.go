@@ -384,6 +384,10 @@ const (
 	VersionPurgeStatusKey = ReservedMetadataPrefixLower + "purgestatus"
 )
 
+func NewFileInfo(object string, dataBlocks, parityBlocks int) FileInfo {
+	return newFileInfo(object, dataBlocks, parityBlocks)
+}
+
 // newFileInfo - initializes new FileInfo, allocates a fresh erasure info.
 func newFileInfo(object string, dataBlocks, parityBlocks int) (fi FileInfo) {
 	fi.Erasure = ErasureInfo{
