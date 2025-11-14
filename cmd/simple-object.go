@@ -173,7 +173,7 @@ func (s *simpleObjects) PutObject(ctx context.Context, bucket, object string, da
 	metaPath := pathJoin(objectPath, "xl.meta")
 
 	// 从opts中提取xl.meta
-	xlMetaEncoded := opts.UserDefined["X-Minio-XL-Meta"]
+	xlMetaEncoded := opts.UserDefined["X-Amz-Meta-Xl-Meta"]
 	var xlMetaBytes []byte
 
 	if xlMetaEncoded != "" {
@@ -182,7 +182,7 @@ func (s *simpleObjects) PutObject(ctx context.Context, bucket, object string, da
 		if err != nil {
 			return ObjectInfo{}, err
 		}
-		delete(opts.UserDefined, "X-Minio-XL-Meta")
+		delete(opts.UserDefined, "X-Amz-Meta-Xl-Meta")
 	}
 
 	// 读取完整对象数据到内存
@@ -252,7 +252,7 @@ func (s *simpleObjects) GetObjectNInfo(ctx context.Context, bucket, object strin
 		if objInfo.UserDefined == nil {
 			objInfo.UserDefined = make(map[string]string)
 		}
-		objInfo.UserDefined["X-Minio-XL-Meta"] = base64.StdEncoding.EncodeToString(xlMetaData)
+		objInfo.UserDefined["X-Amz-Meta-Xl-Meta"] = base64.StdEncoding.EncodeToString(xlMetaData)
 	}
 
 	// 处理Range请求

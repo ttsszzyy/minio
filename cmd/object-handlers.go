@@ -502,8 +502,8 @@ func (api objectAPIHandlers) getObjectHandler(ctx context.Context, objectAPI Obj
 	objInfo.UserDefined = objectlock.FilterObjectLockMetadata(objInfo.UserDefined, getRetPerms != ErrNone, legalHoldPerms != ErrNone)
 
 	// 返回xl.meta给客户端
-	if xlMeta, ok := objInfo.UserDefined["X-Minio-XL-Meta"]; ok {
-		w.Header().Set("X-Minio-XL-Meta", xlMeta)
+	if xlMeta, ok := objInfo.UserDefined["X-Amz-Meta-Xl-Meta"]; ok {
+		w.Header().Set("X-Amz-Meta-Xl-Meta", xlMeta)
 	}
 
 	// Set encryption response headers
@@ -967,8 +967,8 @@ func (api objectAPIHandlers) headObjectHandler(ctx context.Context, objectAPI Ob
 	setHeadGetRespHeaders(w, r.Form)
 
 	// 返回xl.meta给客户端
-	if xlMeta, ok := objInfo.UserDefined["X-Minio-XL-Meta"]; ok {
-		w.Header().Set("X-Minio-XL-Meta", xlMeta)
+	if xlMeta, ok := objInfo.UserDefined["X-Amz-Meta-Xl-Meta"]; ok {
+		w.Header().Set("X-Amz-Meta-Xl-Meta", xlMeta)
 	}
 
 	// Successful response.
